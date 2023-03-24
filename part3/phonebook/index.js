@@ -22,6 +22,7 @@ app.use(morgan(logFormat));
 app.use(express.json());
 app.use(morgan("tiny"));
 app.use(cors());
+app.use(express.static("build"));
 
 let persons = [
   {
@@ -45,10 +46,6 @@ let persons = [
     number: "39-23-6423122",
   },
 ];
-
-app.get("/", (req, res) => {
-  res.send("Hello");
-});
 
 app.get("/info", (req, res) => {
   res.send(`<p>Phonebook has ${persons.length} people</p> ${new Date()}`);
