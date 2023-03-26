@@ -1,7 +1,9 @@
+require("dotenv").config();
 const express = require("express");
 const app = express();
 const morgan = require("morgan");
 const cors = require("cors");
+const Person = require("./models/person");
 
 const generateId = () => {
   const min = 100000;
@@ -24,73 +26,101 @@ app.use(morgan("tiny"));
 app.use(cors());
 app.use(express.static("build"));
 
-let persons = [
-  {
-    id: 1,
-    name: "Arto Hellas",
-    number: "040-123456",
-  },
-  {
-    id: 2,
-    name: "Ada Lovelace",
-    number: "39-44-5323523",
-  },
-  {
-    id: 3,
-    name: "Dan Abramov",
-    number: "12-43-234345",
-  },
-  {
-    id: 4,
-    name: "Mary Poppendieck",
-    number: "39-23-6423122",
-  },
-];
-
-app.get("/info", (req, res) => {
-  res.send(`<p>Phonebook has ${persons.length} people</p> ${new Date()}`);
+app.get("/info", (req, res, next) => {
+  Person.countDocuments({})
+    .then((count) => {
+      res.send(`<p>Phonebook has ${count} people</p> ${new Date()}`);
+    })
+    .catch((error) => next(error));
 });
 
 app.get("/api/persons", morgan("combined"), (req, res) => {
-  res.send(persons);
+  Person.find({}).then((persons) => {
+    res.json(persons);
+  });
 });
 
-app.get("/api/persons/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const person = persons.find((person) => person.id === id);
-
-  if (person) {
-    res.json(person);
-  } else {
-    res.status(404).end();
-  }
+app.get("/api/persons/:id", (req, res, next) => {
+  const id = req.params.id;
+  Person.findById(id)
+    .then((person) => {
+      if (person) {
+        res.json(person);
+      } else {
+        res.status(404).end();
+      }
+    })
+    .catch((error) => next(error));
 });
 
 app.delete("/api/persons/:id", (request, response) => {
-  const id = Number(request.params.id);
-  persons = persons.filter((person) => person.id !== id);
-
-  response.status(204).end();
+  const id = request.params.id;
+  Person.findByIdAndRemove(id)
+    .then(() => {
+      response.status(204).end();
+    })
+    .catch((error) => {
+      console.log(error);
+      response
+        .status(500)
+        .send({ error: "Error deleting person from database" });
+    });
 });
 
-app.post("/api/persons", morgan("common"), (req, res) => {
+app.post("/api/persons", (req, res, next) => {
   const body = req.body;
-
-  if (!body.name) {
+  console.log(body);
+  if (!body.name || body.number === undefined) {
     return res.status(404).json({
       error: "Content Missing",
     });
   }
+  const person = new Person({
+    name: body.name,
+    number: body.number,
+  });
+  person
+    .save()
+    .then((savedPerson) => {
+      res.json(savedPerson);
+    })
+    .catch((error) => next(error));
+});
+
+app.put("/api/persons/:id", (request, response, next) => {
+  const id = request.params.id;
+  const body = request.body;
 
   const person = {
-    id: generateId(),
     name: body.name,
     number: body.number,
   };
 
-  persons = persons.concat(person);
-  res.json(person);
-  console.log(persons);
+  Person.findByIdAndUpdate(id, person, { new: true })
+    .then((updatedPerson) => {
+      if (updatedPerson) {
+        response.json(updatedPerson);
+      } else {
+        response.status(404).end();
+      }
+    })
+    .catch((error) => next(error));
 });
-const PORT = process.env.PORT || 3001;
+
+const PORT = process.env.PORT;
 app.listen(PORT, () => console.log(`http://localhost:${PORT}`));
+
+// Error handler middleware
+const errorHandler = (error, request, response, next) => {
+  console.error(error.message);
+
+  if (error.name === "CastError" && error.kind === "ObjectId") {
+    return response.status(400).send({ error: "Malformed id" });
+  } else if (error.name === "ValidationError") {
+    return response.status(400).json({ error: error.message });
+  }
+
+  next(error);
+};
+
+app.use(errorHandler);
